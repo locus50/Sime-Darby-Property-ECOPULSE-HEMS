@@ -1,0 +1,1616 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SDP EcoPulse HEMS SCADA Dashboard</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        scada: {
+                            bg: '#090d16',
+                            card: 'rgba(15, 23, 42, 0.75)',
+                            border: 'rgba(51, 65, 85, 0.5)',
+                            emerald: '#10b981',
+                            cyan: '#06b6d4',
+                            amber: '#f59e0b',
+                            rose: '#f43f5e',
+                            purple: '#a855f7'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js v4.4.1 UMD -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <style>
+        body {
+            background-color: #070a11;
+            color: #f1f5f9;
+            font-family: 'Inter', sans-serif;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.05) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.05) 0px, transparent 50%),
+                radial-gradient(at 50% 100%, rgba(168, 85, 247, 0.03) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+
+        /* Glassmorphism Card Style */
+        .scada-card {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(51, 65, 85, 0.4);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .scada-card-hover {
+            transition: all 0.2s ease-in-out;
+        }
+        .scada-card-hover:hover {
+            border-color: rgba(16, 185, 129, 0.4);
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.15);
+        }
+
+        /* SVG Flow Animation */
+        @keyframes dashFlow {
+            to {
+                stroke-dashoffset: -20;
+            }
+        }
+        .flow-line {
+            stroke-dasharray: 6, 4;
+            animation: dashFlow 0.8s linear infinite;
+        }
+        .flow-line-reverse {
+            stroke-dasharray: 6, 4;
+            animation: dashFlow 0.8s linear infinite reverse;
+        }
+        .flow-line-fast {
+            animation-duration: 0.4s;
+        }
+        .flow-line-off {
+            animation: none;
+            stroke-dasharray: none;
+            opacity: 0.2;
+        }
+
+        /* SCADA Pulse Animations */
+        @keyframes pulseGlow {
+            0%, 100% { opacity: 0.3; transform: scale(1); }
+            50% { opacity: 0.8; transform: scale(1.05); }
+        }
+        .node-pulse {
+            animation: pulseGlow 2.5s infinite ease-in-out;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #10b981;
+        }
+
+        /* Slider Styling */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: #1e293b;
+            height: 6px;
+            border-radius: 3px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #10b981;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.8);
+            transition: transform 0.1s ease;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        @media print {
+            body { background: white !important; color: black !important; }
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+        }
+    </style>
+</head>
+<body class="min-h-screen text-slate-100 p-2 sm:p-4 md:p-6 space-y-4">
+
+    <!-- VOLTAGE SAG / SCADA CRITICAL ALARM BANNER -->
+    <div id="gridSagAlertBanner" class="hidden bg-red-950/90 border-2 border-red-500 text-red-200 px-4 py-3 rounded-xl shadow-2xl flex items-center justify-between animate-pulse">
+        <div class="flex items-center space-x-3">
+            <i data-lucide="alert-octagon" class="w-7 h-7 text-red-400"></i>
+            <div>
+                <p class="font-bold text-sm tracking-wider uppercase text-red-300">SCADA CRITICAL ALARM: TNB GRID VOLTAGE SAG DETECTED (182V AC)</p>
+                <p class="text-xs text-red-200">HEMS Hub dynamically executing islanded microgrid defense protocol. BESS & V2H taking over 100% home loads.</p>
+            </div>
+        </div>
+        <button onclick="clearGridSagFault()" class="px-3 py-1.5 bg-red-800 hover:bg-red-700 text-white rounded-lg text-xs font-semibold tracking-wide transition shadow">
+            CLEAR FAULT & RECONNECT GRID
+        </button>
+    </div>
+
+    <!-- 1. HEADER & VIEW SWITCHER BAR -->
+    <header class="scada-card rounded-2xl p-4 flex flex-col lg:flex-row items-center justify-between gap-4">
+        <!-- Brand Title & Location -->
+        <div class="flex items-center space-x-3 w-full lg:w-auto justify-between lg:justify-start">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                    <i data-lucide="zap" class="w-6 h-6 text-slate-950 stroke-[2.5]"></i>
+                </div>
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <h1 class="text-xl font-extrabold tracking-tight bg-gradient-to-r from-emerald-400 via-cyan-400 to-indigo-300 bg-clip-text text-transparent">
+                            SDP EcoPulse HEMS SCADA
+                        </h1>
+                        <span class="text-[10px] uppercase font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                            v3.4 Enterprise
+                        </span>
+                    </div>
+                    <div class="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
+                        <span class="flex items-center"><i data-lucide="map-pin" class="w-3 h-3 mr-1 text-emerald-400"></i> City of Elmina / Elmina Ridge Phase 1</span>
+                        <span>•</span>
+                        <span id="liveClock" class="font-mono text-cyan-300">MYT --:--:--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- View Mode Switcher + IoT Telemetry Status Bar -->
+        <div class="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-end">
+            <!-- Mode Toggle Switch -->
+            <div class="bg-slate-900/90 border border-slate-700/60 p-1 rounded-xl flex items-center space-x-1 text-xs">
+                <button id="viewBtnResident" onclick="switchViewMode('resident')" class="px-3 py-1.5 rounded-lg font-medium transition flex items-center space-x-1.5 bg-emerald-500 text-slate-950 font-bold shadow">
+                    <i data-lucide="home" class="w-3.5 h-3.5"></i>
+                    <span>Resident View</span>
+                </button>
+                <button id="viewBtnCommand" onclick="switchViewMode('command')" class="px-3 py-1.5 rounded-lg font-medium text-slate-400 hover:text-slate-200 transition flex items-center space-x-1.5">
+                    <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i>
+                    <span>SDP PACC Command (NETR)</span>
+                </button>
+            </div>
+
+            <!-- IoT Telemetry Bar -->
+            <div class="hidden sm:flex items-center space-x-3 bg-slate-900/80 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono">
+                <div class="flex items-center space-x-1.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                    <span class="text-slate-300">MQTT: <span class="text-emerald-400 font-semibold">ONLINE</span></span>
+                </div>
+                <span class="text-slate-700">|</span>
+                <div class="text-slate-300">MODBUS TCP: <span class="text-cyan-400">100%</span></div>
+                <span class="text-slate-700">|</span>
+                <div class="text-slate-300">5G Latency: <span class="text-emerald-400">14 ms</span></div>
+            </div>
+
+            <!-- Header Action Buttons -->
+            <div class="flex items-center space-x-2">
+                <button onclick="openModal('esgAuditModal')" class="px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold rounded-xl text-xs flex items-center space-x-1.5 transition shadow-lg shadow-emerald-500/20">
+                    <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+                    <span>ESG Audit Statement</span>
+                </button>
+                <button onclick="openModal('sdpDataModal')" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-600/60 text-slate-200 font-semibold rounded-xl text-xs flex items-center space-x-1.5 transition">
+                    <i data-lucide="database" class="w-3.5 h-3.5 text-cyan-400"></i>
+                    <span>SDP Ref Data</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 2. AUDITED SDP BENCHMARK METRICS HEADER -->
+    <div class="scada-card rounded-2xl p-3.5 border-l-4 border-l-emerald-500 bg-gradient-to-r from-slate-900/90 via-slate-900/60 to-emerald-950/20">
+        <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
+            <div class="flex items-center space-x-2">
+                <span class="bg-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-md font-mono font-bold text-[11px] uppercase tracking-wider border border-emerald-500/30">
+                    AUDITED SDP BENCHMARK (FY24-FY25)
+                </span>
+                <p class="text-slate-300 hidden xl:block">
+                    Official Sime Darby Property Group Sustainability Operating Baseline (9 Pilot Assets)
+                </p>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-6 text-slate-300 font-mono w-full md:w-auto">
+                <div class="border-l border-slate-800 pl-3">
+                    <span class="text-[10px] text-slate-500 uppercase block font-sans">Group Solar Capacity</span>
+                    <span class="font-bold text-slate-100">603 kWp</span> <span class="text-[10px] text-emerald-400">(9 Sites)</span>
+                </div>
+                <div class="border-l border-slate-800 pl-3">
+                    <span class="text-[10px] text-slate-500 uppercase block font-sans">Group Solar Yield</span>
+                    <span class="font-bold text-slate-100">495 MWh</span> <span class="text-[10px] text-cyan-400">(1,782 GJ)</span>
+                </div>
+                <div class="border-l border-slate-800 pl-3">
+                    <span class="text-[10px] text-slate-500 uppercase block font-sans">Direct Scope 2 Offset</span>
+                    <span class="font-bold text-slate-100">383 tCO₂e</span> <span class="text-[10px] text-emerald-400">(+1,789 GETs)</span>
+                </div>
+                <div class="border-l border-slate-800 pl-3">
+                    <span class="text-[10px] text-slate-500 uppercase block font-sans">CREAM Microgrid Loop</span>
+                    <span class="font-bold text-slate-100">5.0 km</span> <span class="text-[10px] text-purple-400">Elmina Ridge</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. 6 DYNAMIC KPI STAT CARDS -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+        <!-- KPI 1: Solar Capacity -->
+        <div class="scada-card scada-card-hover rounded-2xl p-3.5 flex flex-col justify-between">
+            <div class="flex items-center justify-between text-slate-400 mb-1">
+                <span class="text-xs font-medium">Solar PV Live</span>
+                <i data-lucide="sun" class="w-4 h-4 text-amber-400"></i>
+            </div>
+            <div class="my-1">
+                <span id="kpiSolarKw" class="text-2xl font-extrabold font-mono text-amber-400">4.20</span>
+                <span class="text-xs text-slate-400 font-mono">kW</span>
+            </div>
+            <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1">
+                <div id="kpiSolarBar" class="bg-amber-400 h-full rounded-full transition-all duration-500" style="width: 87.5%;"></div>
+            </div>
+            <p class="text-[10px] text-slate-500 mt-1.5 font-mono">Capacity: 4.8 kWp (Ridge)</p>
+        </div>
+
+        <!-- KPI 2: On-site Solar Generation -->
+        <div class="scada-card scada-card-hover rounded-2xl p-3.5 flex flex-col justify-between">
+            <div class="flex items-center justify-between text-slate-400 mb-1">
+                <span class="text-xs font-medium">Solar Yield (YTD)</span>
+                <i data-lucide="sparkles" class="w-4 h-4 text-emerald-400"></i>
+            </div>
+            <div class="my-1">
+                <span id="kpiSolarMwh" class="text-2xl font-extrabold font-mono text-emerald-400">3.85</span>
+                <span class="text-xs text-slate-400 font-mono">MWh</span>
+            </div>
+            <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1">
+                <div class="bg-emerald-400 h-full rounded-full transition-all duration-500" style="width: 78%;"></div>
+            </div>
+            <p class="text-[10px] text-slate-500 mt-1.5 font-mono">Group Target: 495 MWh</p>
+        </div>
+
+        <!-- KPI 3: Scope 2 Carbon Offset -->
+        <div class="scada-card scada-card-hover rounded-2xl p-3.5 flex flex-col justify-between">
+            <div class="flex items-center justify-between text-slate-400 mb-1">
+                <span class="text-xs font-medium">Carbon Offset</span>
+                <i data-lucide="leaf" class="w-4 h-4 text-emerald-500"></i>
+            </div>
+            <div class="my-1">
+                <span id="kpiCarbonOffset" class="text-2xl font-extrabold font-mono text-emerald-300">2.92</span>
+                <span class="text-xs text-slate-400 font-mono">tCO₂e</span>
+            </div>
+            <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1">
+                <div class="bg-emerald-500 h-full rounded-full transition-all duration-500" style="width: 82%;"></div>
+            </div>
+            <p class="text-[10px] text-slate-500 mt-1.5 font-mono">Group Target: 383 tCO₂e</p>
+        </div>
+
+        <!-- KPI 4: BESS SOC% -->
+        <div class="scada-card scada-card-hover rounded-2xl p-3.5 flex flex-col justify-between">
+            <div class="flex items-center justify-between text-slate-400 mb-1">
+                <span class="text-xs font-medium">BESS Storage</span>
+                <i data-lucide="battery-charging" class="w-4 h-4 text-cyan-400"></i>
+            </div>
+            <div class="my-1 flex items-baseline justify-between">
+                <div>
+                    <span id="kpiBessSoc" class="text-2xl font-extrabold font-mono text-cyan-400">85</span>
+                    <span class="text-xs text-slate-400 font-mono">% SOC</span>
+                </div>
+                <span id="kpiBessStatus" class="text-[10px] px-1.5 py-0.5 rounded font-mono bg-cyan-950 text-cyan-300 border border-cyan-800">
+                    DISCHARGING
+                </span>
+            </div>
+            <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1">
+                <div id="kpiBessBar" class="bg-cyan-400 h-full rounded-full transition-all duration-500" style="width: 85%;"></div>
+            </div>
+            <p class="text-[10px] text-slate-500 mt-1.5 font-mono">Cap: 10 kWh LFP Cell</p>
+        </div>
+
+        <!-- KPI 5: Peak Shaving Rate % -->
+        <div class="scada-card scada-card-hover rounded-2xl p-3.5 flex flex-col justify-between">
+            <div class="flex items-center justify-between text-slate-400 mb-1">
+                <span class="text-xs font-medium">Peak Shaving</span>
+                <i data-lucide="trending-down" class="w-4 h-4 text-purple-400"></i>
+            </div>
+            <div class="my-1">
+                <span id="kpiPeakShaving" class="text-2xl font-extrabold font-mono text-purple-300">92.4</span>
+                <span class="text-xs text-slate-400 font-mono">%</span>
+            </div>
+            <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1">
+                <div id="kpiPeakBar" class="bg-purple-400 h-full rounded-full transition-all duration-500" style="width: 92.4%;"></div>
+            </div>
+            <p class="text-[10px] text-slate-500 mt-1.5 font-mono">TNB Peak Cut: -3.8 kW</p>
+        </div>
+
+        <!-- KPI 6: Grid Autonomy Rate % -->
+        <div class="scada-card scada-card-hover rounded-2xl p-3.5 flex flex-col justify-between">
+            <div class="flex items-center justify-between text-slate-400 mb-1">
+                <span class="text-xs font-medium">Grid Autonomy</span>
+                <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+            </div>
+            <div class="my-1">
+                <span id="kpiAutonomy" class="text-2xl font-extrabold font-mono text-emerald-400">88.5</span>
+                <span class="text-xs text-slate-400 font-mono">%</span>
+            </div>
+            <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1">
+                <div id="kpiAutonomyBar" class="bg-emerald-400 h-full rounded-full transition-all duration-500" style="width: 88.5%;"></div>
+            </div>
+            <p class="text-[10px] text-slate-500 mt-1.5 font-mono">Zero TNB Draw Active</p>
+        </div>
+    </div>
+
+    <!-- MAIN CONTROL & VISUALIZATION DASHBOARD GRID -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+        <!-- LEFT COLUMN: POWER FLOW SCHEMATIC & CONTROLS (7 COLS) -->
+        <div class="lg:col-span-7 space-y-4">
+            
+            <!-- 4. INTERACTIVE SVG POWER FLOW CIRCUIT SCHEMATIC -->
+            <div class="scada-card rounded-2xl p-4 relative overflow-hidden">
+                <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+                    <div class="flex items-center space-x-2">
+                        <i data-lucide="activity" class="w-5 h-5 text-emerald-400"></i>
+                        <h2 class="text-base font-bold tracking-wide">Live Microgrid Power Flow Schematic</h2>
+                    </div>
+                    <span class="text-[11px] font-mono bg-slate-800 text-slate-300 px-2.5 py-1 rounded-lg border border-slate-700 flex items-center space-x-1">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1"></span>
+                        <span>Click nodes for Modbus telemetry</span>
+                    </span>
+                </div>
+
+                <!-- SVG Diagram Canvas -->
+                <div class="w-full relative flex justify-center items-center py-2 bg-slate-950/60 rounded-xl border border-slate-800/80">
+                    <svg viewBox="0 0 620 340" class="w-full h-auto max-h-[340px] select-none">
+                        <defs>
+                            <!-- Line Gradients -->
+                            <linearGradient id="solarGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#fbbf24" />
+                                <stop offset="100%" stop-color="#10b981" />
+                            </linearGradient>
+                            <linearGradient id="bessGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#06b6d4" />
+                                <stop offset="100%" stop-color="#10b981" />
+                            </linearGradient>
+                            <linearGradient id="v2hGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#a855f7" />
+                                <stop offset="100%" stop-color="#06b6d4" />
+                            </linearGradient>
+                            <linearGradient id="gridGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#10b981" />
+                                <stop offset="100%" stop-color="#f43f5e" />
+                            </linearGradient>
+
+                            <!-- Glow Filter -->
+                            <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                                <feGaussianBlur stdDeviation="3" result="blur" />
+                                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                            </filter>
+                        </defs>
+
+                        <!-- POWER FLOW CONNECTION LINES -->
+                        <!-- Solar PV -> HEMS Hub -->
+                        <path d="M 120 70 L 310 170" stroke="url(#solarGrad)" stroke-width="3.5" fill="none" class="flow-line" id="flowSolarToHub" filter="url(#glow)"/>
+                        
+                        <!-- BESS -> HEMS Hub -->
+                        <path d="M 120 270 L 310 170" stroke="url(#bessGrad)" stroke-width="3.5" fill="none" class="flow-line" id="flowBessToHub" filter="url(#glow)"/>
+
+                        <!-- V2H EV -> HEMS Hub -->
+                        <path d="M 310 270 L 310 170" stroke="url(#v2hGrad)" stroke-width="3.5" fill="none" class="flow-line" id="flowV2hToHub" filter="url(#glow)"/>
+
+                        <!-- HEMS Hub -> TNB Grid / CREAM -->
+                        <path d="M 310 170 L 500 70" stroke="url(#gridGrad)" stroke-width="3.5" fill="none" class="flow-line" id="flowHubToGrid" filter="url(#glow)"/>
+
+                        <!-- HEMS Hub -> Home Loads -->
+                        <path d="M 310 170 L 500 270" stroke="#38bdf8" stroke-width="4" fill="none" class="flow-line" id="flowHubToLoad" filter="url(#glow)"/>
+
+                        <!-- CLICKABLE HARDWARE NODES -->
+                        
+                        <!-- Node 1: Solar PV -->
+                        <g class="cursor-pointer group" onclick="openNodeModal('solar')">
+                            <rect x="50" y="30" width="140" height="80" rx="14" fill="#0f172a" stroke="#f59e0b" stroke-width="2" class="transition group-hover:fill-slate-800"/>
+                            <circle cx="120" cy="30" r="14" fill="#f59e0b" class="node-pulse"/>
+                            <text x="120" y="34" text-anchor="middle" fill="#0f172a" font-size="10" font-weight="bold">PV</text>
+                            <text x="120" y="62" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="bold">Solar Array</text>
+                            <text x="120" y="80" text-anchor="middle" fill="#f59e0b" font-size="13" font-weight="bold" font-family="monospace" id="svgSolarKw">4.20 kW</text>
+                            <text x="120" y="96" text-anchor="middle" fill="#94a3b8" font-size="9">String #1 / #2</text>
+                        </g>
+
+                        <!-- Node 2: 10kWh BESS -->
+                        <g class="cursor-pointer group" onclick="openNodeModal('bess')">
+                            <rect x="50" y="230" width="140" height="80" rx="14" fill="#0f172a" stroke="#06b6d4" stroke-width="2" class="transition group-hover:fill-slate-800"/>
+                            <circle cx="120" cy="230" r="14" fill="#06b6d4" class="node-pulse"/>
+                            <text x="120" y="234" text-anchor="middle" fill="#0f172a" font-size="10" font-weight="bold">BAT</text>
+                            <text x="120" y="262" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="bold">10kWh LFP BESS</text>
+                            <text x="120" y="280" text-anchor="middle" fill="#06b6d4" font-size="13" font-weight="bold" font-family="monospace" id="svgBessKw">1.80 kW</text>
+                            <text x="120" y="296" text-anchor="middle" fill="#94a3b8" font-size="9" id="svgBessSocText">SOC: 85%</text>
+                        </g>
+
+                        <!-- Node 3: V2H EV Charger -->
+                        <g class="cursor-pointer group" onclick="openNodeModal('v2h')">
+                            <rect x="240" y="230" width="140" height="80" rx="14" fill="#0f172a" stroke="#a855f7" stroke-width="2" class="transition group-hover:fill-slate-800"/>
+                            <circle cx="310" cy="230" r="14" fill="#a855f7" class="node-pulse"/>
+                            <text x="310" y="234" text-anchor="middle" fill="#0f172a" font-size="10" font-weight="bold">EV</text>
+                            <text x="310" y="262" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="bold">V2H Charger</text>
+                            <text x="310" y="280" text-anchor="middle" fill="#a855f7" font-size="13" font-weight="bold" font-family="monospace" id="svgV2hKw">1.50 kW</text>
+                            <text x="310" y="296" text-anchor="middle" fill="#94a3b8" font-size="9" id="svgV2hStateText">ISO 15118 Discharging</text>
+                        </g>
+
+                        <!-- Node 4: HEMS Smart Orchestrator Hub (Center) -->
+                        <g class="cursor-pointer group" onclick="openNodeModal('hub')">
+                            <circle cx="310" cy="170" r="38" fill="#0f172a" stroke="#10b981" stroke-width="3" class="transition group-hover:fill-slate-800"/>
+                            <circle cx="310" cy="170" r="46" stroke="#10b981" stroke-width="1" stroke-dasharray="4 4" fill="none" class="animate-spin" style="animation-duration: 12s;"/>
+                            <text x="310" y="165" text-anchor="middle" fill="#10b981" font-size="12" font-weight="extrabold">EcoPulse</text>
+                            <text x="310" y="180" text-anchor="middle" fill="#f8fafc" font-size="10" font-weight="bold">HEMS HUB</text>
+                            <text x="310" y="193" text-anchor="middle" fill="#34d399" font-size="9" font-family="monospace">AI ONLINE</text>
+                        </g>
+
+                        <!-- Node 5: TNB Grid / CREAM Microgrid -->
+                        <g class="cursor-pointer group" onclick="openNodeModal('grid')">
+                            <rect x="430" y="30" width="140" height="80" rx="14" fill="#0f172a" stroke="#f43f5e" stroke-width="2" class="transition group-hover:fill-slate-800" id="gridNodeBox"/>
+                            <circle cx="500" cy="30" r="14" fill="#f43f5e" class="node-pulse" id="gridNodePulse"/>
+                            <text x="500" y="34" text-anchor="middle" fill="#0f172a" font-size="10" font-weight="bold">GRID</text>
+                            <text x="500" y="62" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="bold">TNB / CREAM Loop</text>
+                            <text x="500" y="80" text-anchor="middle" fill="#f43f5e" font-size="13" font-weight="bold" font-family="monospace" id="svgGridKw">0.00 kW</text>
+                            <text x="500" y="96" text-anchor="middle" fill="#94a3b8" font-size="9" id="svgGridStatus">Net Export / Autonomous</text>
+                        </g>
+
+                        <!-- Node 6: Elmina Home Loads -->
+                        <g class="cursor-pointer group" onclick="openNodeModal('load')">
+                            <rect x="430" y="230" width="140" height="80" rx="14" fill="#0f172a" stroke="#38bdf8" stroke-width="2" class="transition group-hover:fill-slate-800"/>
+                            <circle cx="500" cy="230" r="14" fill="#38bdf8" class="node-pulse"/>
+                            <text x="500" y="234" text-anchor="middle" fill="#0f172a" font-size="10" font-weight="bold">LOAD</text>
+                            <text x="500" y="262" text-anchor="middle" fill="#f8fafc" font-size="12" font-weight="bold">Elmina Villa Load</text>
+                            <text x="500" y="280" text-anchor="middle" fill="#38bdf8" font-size="13" font-weight="bold" font-family="monospace" id="svgLoadKw">2.80 kW</text>
+                            <text x="500" y="296" text-anchor="middle" fill="#94a3b8" font-size="9">HVAC + Smart Appliances</text>
+                        </g>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- 5. CLIMATE SCENARIO PRESETS & LIVE SCADA SLIDERS -->
+            <div class="scada-card rounded-2xl p-4 space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div class="flex items-center space-x-2">
+                        <i data-lucide="sliders" class="w-5 h-5 text-cyan-400"></i>
+                        <h3 class="text-sm font-bold tracking-wide">Climate Presets & Live Parameter Controls</h3>
+                    </div>
+                    <span class="text-xs text-slate-400">Real-Time SCADA Simulator</span>
+                </div>
+
+                <!-- Climate Scenario Presets -->
+                <div class="grid grid-cols-3 gap-2">
+                    <button onclick="applyClimatePreset('sunny')" id="presetSunny" class="px-3 py-2 bg-amber-500/20 border border-amber-500/50 hover:bg-amber-500/30 text-amber-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition">
+                        <i data-lucide="sun" class="w-4 h-4"></i>
+                        <span>Sunny Optimal</span>
+                    </button>
+                    <button onclick="applyClimatePreset('monsoon')" id="presetMonsoon" class="px-3 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition">
+                        <i data-lucide="cloud-rain" class="w-4 h-4 text-cyan-400"></i>
+                        <span>Monsoon Cloud</span>
+                    </button>
+                    <button onclick="applyClimatePreset('heatwave')" id="presetHeatwave" class="px-3 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition">
+                        <i data-lucide="thermometer-sun" class="w-4 h-4 text-rose-400"></i>
+                        <span>Extreme Heatwave</span>
+                    </button>
+                </div>
+
+                <!-- Sliders Grid -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                    <!-- Slider 1: Solar Irradiance / PV Output -->
+                    <div class="bg-slate-900/60 border border-slate-800 p-3 rounded-xl space-y-1.5">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-300 font-medium flex items-center">
+                                <i data-lucide="sun" class="w-3.5 h-3.5 mr-1 text-amber-400"></i> Solar PV Output
+                            </span>
+                            <span id="valSolarKw" class="font-mono text-amber-400 font-bold">4.2 kW</span>
+                        </div>
+                        <input type="range" id="sliderSolar" min="0" max="6.0" step="0.1" value="4.2" class="w-full" oninput="updateSCADAState()">
+                        <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                            <span>0.0 kW (Night)</span>
+                            <span>6.0 kW (Max)</span>
+                        </div>
+                    </div>
+
+                    <!-- Slider 2: Home Load / HVAC -->
+                    <div class="bg-slate-900/60 border border-slate-800 p-3 rounded-xl space-y-1.5">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-300 font-medium flex items-center">
+                                <i data-lucide="home" class="w-3.5 h-3.5 mr-1 text-sky-400"></i> Home HVAC & Load
+                            </span>
+                            <span id="valLoadKw" class="font-mono text-sky-400 font-bold">2.8 kW</span>
+                        </div>
+                        <input type="range" id="sliderLoad" min="0.5" max="8.0" step="0.1" value="2.8" class="w-full" oninput="updateSCADAState()">
+                        <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                            <span>0.5 kW (Base)</span>
+                            <span>8.0 kW (Peak)</span>
+                        </div>
+                    </div>
+
+                    <!-- Slider 3: BESS SOC % -->
+                    <div class="bg-slate-900/60 border border-slate-800 p-3 rounded-xl space-y-1.5">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-300 font-medium flex items-center">
+                                <i data-lucide="battery-charging" class="w-3.5 h-3.5 mr-1 text-cyan-400"></i> BESS State of Charge
+                            </span>
+                            <span id="valSocPct" class="font-mono text-cyan-400 font-bold">85 %</span>
+                        </div>
+                        <input type="range" id="sliderSoc" min="10" max="100" step="1" value="85" class="w-full" oninput="updateSCADAState()">
+                        <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                            <span>10% Reserve</span>
+                            <span>100% Full</span>
+                        </div>
+                    </div>
+
+                    <!-- Slider 4: V2H EV Discharge/Charge -->
+                    <div class="bg-slate-900/60 border border-slate-800 p-3 rounded-xl space-y-1.5">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-300 font-medium flex items-center">
+                                <i data-lucide="car" class="w-3.5 h-3.5 mr-1 text-purple-400"></i> EV V2H Flow (kW)
+                            </span>
+                            <span id="valV2hKw" class="font-mono text-purple-400 font-bold">+1.5 kW</span>
+                        </div>
+                        <input type="range" id="sliderV2h" min="-3.5" max="3.5" step="0.1" value="1.5" class="w-full" oninput="updateSCADAState()">
+                        <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                            <span>-3.5 kW (Charge)</span>
+                            <span>+3.5 kW (V2H)</span>
+                        </div>
+                    </div>
+
+                    <!-- Slider 5: Ambient Temp -->
+                    <div class="bg-slate-900/60 border border-slate-800 p-3 rounded-xl space-y-1.5">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-300 font-medium flex items-center">
+                                <i data-lucide="thermometer" class="w-3.5 h-3.5 mr-1 text-rose-400"></i> Ambient Temperature
+                            </span>
+                            <span id="valTempC" class="font-mono text-rose-400 font-bold">31.0 °C</span>
+                        </div>
+                        <input type="range" id="sliderTemp" min="22" max="42" step="0.5" value="31.0" class="w-full" oninput="updateSCADAState()">
+                        <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                            <span>22°C</span>
+                            <span>42°C (Heatwave)</span>
+                        </div>
+                    </div>
+
+                    <!-- Slider 6: TNB Tariff Rate -->
+                    <div class="bg-slate-900/60 border border-slate-800 p-3 rounded-xl space-y-1.5">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-300 font-medium flex items-center">
+                                <i data-lucide="dollar-sign" class="w-3.5 h-3.5 mr-1 text-emerald-400"></i> TNB Tariff Rate
+                            </span>
+                            <span id="valTariff" class="font-mono text-emerald-400 font-bold">RM 0.58 / kWh</span>
+                        </div>
+                        <input type="range" id="sliderTariff" min="0.24" max="0.80" step="0.01" value="0.58" class="w-full" oninput="updateSCADAState()">
+                        <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                            <span>RM0.24 (Off-Peak)</span>
+                            <span>RM0.58 (Peak)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 6. HEMS DISPATCH MODES -->
+            <div class="scada-card rounded-2xl p-4 space-y-3">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div class="flex items-center space-x-2">
+                        <i data-lucide="cpu" class="w-5 h-5 text-emerald-400"></i>
+                        <h3 class="text-sm font-bold tracking-wide">HEMS Automated Dispatch Strategies</h3>
+                    </div>
+                    <span class="text-xs text-slate-400 font-mono">Instant Mode Execution</span>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <button onclick="setDispatchMode('ai_auto')" id="modeAiAuto" class="p-3 bg-emerald-500/20 border-2 border-emerald-500 text-emerald-300 rounded-xl text-left transition hover:bg-emerald-500/30">
+                        <div class="flex items-center justify-between">
+                            <i data-lucide="bot" class="w-4 h-4 text-emerald-400"></i>
+                            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                        </div>
+                        <p class="font-bold text-xs mt-2">AI Auto Orchestration</p>
+                        <p class="text-[10px] text-slate-400 mt-0.5">NETR Self-Consumption Max</p>
+                    </button>
+
+                    <button onclick="setDispatchMode('peak_shaving')" id="modePeakShaving" class="p-3 bg-slate-900 border border-slate-800 text-slate-300 rounded-xl text-left transition hover:bg-slate-800">
+                        <div class="flex items-center justify-between">
+                            <i data-lucide="trending-down" class="w-4 h-4 text-purple-400"></i>
+                        </div>
+                        <p class="font-bold text-xs mt-2">Peak Demand Shaving</p>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Cap Grid Draw < 0.2 kW</p>
+                    </button>
+
+                    <button onclick="setDispatchMode('v2h_priority')" id="modeV2hPriority" class="p-3 bg-slate-900 border border-slate-800 text-slate-300 rounded-xl text-left transition hover:bg-slate-800">
+                        <div class="flex items-center justify-between">
+                            <i data-lucide="car" class="w-4 h-4 text-cyan-400"></i>
+                        </div>
+                        <p class="font-bold text-xs mt-2">V2H Priority Mode</p>
+                        <p class="text-[10px] text-slate-400 mt-0.5">EV Battery Powers Home</p>
+                    </button>
+
+                    <button onclick="setDispatchMode('fast_charge')" id="modeFastCharge" class="p-3 bg-slate-900 border border-slate-800 text-slate-300 rounded-xl text-left transition hover:bg-slate-800">
+                        <div class="flex items-center justify-between">
+                            <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i>
+                        </div>
+                        <p class="font-bold text-xs mt-2">Off-Peak Fast-Charge</p>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Low Tariff BESS Recharge</p>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT COLUMN: AI RECOMMENDATIONS, TOU SAVINGS, SCADA ALARMS & CHART (5 COLS) -->
+        <div class="lg:col-span-5 space-y-4">
+
+            <!-- 7. ACTIONABLE AI RECOMMENDATION ENGINE -->
+            <div class="scada-card rounded-2xl p-4 space-y-3">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div class="flex items-center space-x-2">
+                        <i data-lucide="brain-circuit" class="w-5 h-5 text-purple-400"></i>
+                        <h3 class="text-sm font-bold tracking-wide">EcoPulse AI Optimization Engine</h3>
+                    </div>
+                    <span class="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded font-mono border border-purple-500/30">
+                        Real-time Advice
+                    </span>
+                </div>
+
+                <div class="space-y-2.5" id="aiRecommendationsContainer">
+                    <!-- AI Card 1 -->
+                    <div class="bg-slate-900/80 border border-purple-500/30 p-3 rounded-xl flex items-center justify-between hover:border-purple-500/60 transition">
+                        <div class="flex items-start space-x-2.5">
+                            <div class="p-2 rounded-lg bg-purple-500/10 text-purple-400 mt-0.5">
+                                <i data-lucide="snowflake" class="w-4 h-4"></i>
+                            </div>
+                            <div>
+                                <p class="text-xs font-bold text-slate-200">Pre-Cool Elmina Ridge Villa HVAC</p>
+                                <p class="text-[11px] text-slate-400">Excess solar output (4.2 kW). Pre-cool living zones to 21°C before TNB Peak Zone (14:00).</p>
+                            </div>
+                        </div>
+                        <button onclick="applyAiRecommendation('precool')" class="ml-2 px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold shrink-0 transition">
+                            Apply
+                        </button>
+                    </div>
+
+                    <!-- AI Card 2 -->
+                    <div class="bg-slate-900/80 border border-emerald-500/30 p-3 rounded-xl flex items-center justify-between hover:border-emerald-500/60 transition">
+                        <div class="flex items-start space-x-2.5">
+                            <div class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 mt-0.5">
+                                <i data-lucide="share-2" class="w-4 h-4"></i>
+                            </div>
+                            <div>
+                                <p class="text-xs font-bold text-slate-200">Export Surplus to CREAM Microgrid</p>
+                                <p class="text-[11px] text-slate-400">BESS at 85%. Feed 1.2 kW surplus into 5.0 km Elmina Ridge loop @ RM 0.42/kWh credit.</p>
+                            </div>
+                        </div>
+                        <button onclick="applyAiRecommendation('cream_export')" class="ml-2 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold rounded-lg text-xs shrink-0 transition">
+                            Apply
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 8. TNB TIME-OF-USE (TOU) & ROI TRACKER + ISA-18.2 ALARM FEED -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <!-- TOU Tariff & Daily Savings Card -->
+                <div class="scada-card rounded-2xl p-3.5 space-y-2">
+                    <div class="flex items-center justify-between text-xs text-slate-400">
+                        <span class="font-medium">TNB TOU Tariff Zone</span>
+                        <i data-lucide="clock" class="w-4 h-4 text-amber-400"></i>
+                    </div>
+                    <div class="flex items-baseline justify-between">
+                        <div>
+                            <span id="touZoneLabel" class="text-lg font-black text-amber-400 tracking-wider">PEAK TARIFF</span>
+                            <p class="text-[10px] text-slate-400 font-mono">Zone: 14:00 - 17:00 MYT</p>
+                        </div>
+                        <div class="text-right">
+                            <span id="touRateText" class="text-xs font-mono font-bold text-amber-300">RM 0.58/kWh</span>
+                        </div>
+                    </div>
+                    <div class="border-t border-slate-800 pt-2 flex items-center justify-between text-xs font-mono">
+                        <span class="text-slate-400">Daily RM Savings:</span>
+                        <span id="dailySavingsRm" class="text-emerald-400 font-extrabold text-sm">RM 14.85</span>
+                    </div>
+                    <div class="flex items-center justify-between text-[11px] font-mono text-slate-400">
+                        <span>BCX Carbon Credits:</span>
+                        <span id="bcxCredits" class="text-cyan-400 font-bold">0.0029 BCX</span>
+                    </div>
+                </div>
+
+                <!-- ISA-18.2 SCADA Alarm Feed Header -->
+                <div class="scada-card rounded-2xl p-3.5 space-y-2 flex flex-col justify-between">
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="font-medium text-slate-300 flex items-center">
+                            <i data-lucide="shield-alert" class="w-4 h-4 mr-1 text-rose-400"></i> ISA-18.2 SCADA Alarms
+                        </span>
+                        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    </div>
+                    <p class="text-[11px] text-slate-400">Simulate industrial microgrid contingency events to evaluate HEMS response.</p>
+                    <button onclick="triggerGridSagSimulation()" class="w-full py-1.5 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1">
+                        <i data-lucide="zap-off" class="w-3.5 h-3.5"></i>
+                        <span>Simulate Grid Voltage Sag</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- ISA-18.2 Alarm Event Log Box -->
+            <div class="scada-card rounded-2xl p-3 space-y-2">
+                <div class="flex items-center justify-between text-xs border-b border-slate-800 pb-1.5">
+                    <span class="font-mono text-slate-400 font-semibold uppercase text-[10px]">SCADA Telemetry Event Log</span>
+                    <button onclick="clearSCADAAlarms()" class="text-[10px] text-slate-500 hover:text-slate-300 font-mono">Clear</button>
+                </div>
+                <div id="scadaAlarmLog" class="h-28 overflow-y-auto space-y-1.5 font-mono text-[11px] pr-1">
+                    <!-- Dynamic Log Items injected via JS -->
+                </div>
+            </div>
+
+            <!-- 9. 24-HOUR ENERGY PROFILE CHART -->
+            <div class="scada-card rounded-2xl p-4 space-y-3">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div class="flex items-center space-x-2">
+                        <i data-lucide="line-chart" class="w-5 h-5 text-emerald-400"></i>
+                        <h3 class="text-sm font-bold tracking-wide">24-Hour SCADA Dispatch Profile</h3>
+                    </div>
+                    <div class="flex items-center space-x-2 text-[10px] font-mono">
+                        <span class="flex items-center text-rose-400"><span class="w-2 h-0.5 bg-rose-400 inline-block mr-1"></span> Uncontrolled</span>
+                        <span class="flex items-center text-amber-400"><span class="w-2 h-0.5 bg-amber-400 inline-block mr-1"></span> Solar</span>
+                        <span class="flex items-center text-emerald-400"><span class="w-2 h-0.5 bg-emerald-400 inline-block mr-1"></span> Net Grid</span>
+                    </div>
+                </div>
+
+                <div class="w-full h-52 relative">
+                    <canvas id="energyProfileChart"></canvas>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- 10. MODALS -->
+
+    <!-- MODAL 1: HARDWARE NODE TELEMETRY INSPECTOR -->
+    <div id="nodeModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+        <div class="scada-card rounded-2xl max-w-lg w-full p-6 space-y-4 border border-emerald-500/40 relative shadow-2xl">
+            <button onclick="closeModal('nodeModal')" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+
+            <div class="flex items-center space-x-3 border-b border-slate-800 pb-3">
+                <div id="nodeModalIcon" class="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400">
+                    <i data-lucide="cpu" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h3 id="nodeModalTitle" class="text-lg font-bold text-slate-100">Hardware Telemetry Node</h3>
+                    <p id="nodeModalSubtitle" class="text-xs text-slate-400 font-mono">Modbus TCP Address: 0x3012</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 text-xs font-mono" id="nodeModalMetrics">
+                <!-- Dynamic Node Specs injected via JS -->
+            </div>
+
+            <div class="bg-slate-900 p-3 rounded-xl border border-slate-800 text-xs space-y-1 font-mono">
+                <p class="text-slate-400 font-bold">Industrial SCADA Control Registers:</p>
+                <p class="text-slate-300" id="nodeModalRegisterText">REG_HEMS_DISPATCH: 0x01 | BAUD: 115200 | CRC: OK</p>
+            </div>
+
+            <div class="flex justify-end pt-2">
+                <button onclick="closeModal('nodeModal')" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition">
+                    Close Telemetry View
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 2: EXECUTIVE SDP ESG TELEMETRY AUDIT STATEMENT -->
+    <div id="esgAuditModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4 overflow-y-auto">
+        <div class="scada-card rounded-2xl max-w-2xl w-full p-6 space-y-5 border border-emerald-500/40 relative my-8 shadow-2xl">
+            <button onclick="closeModal('esgAuditModal')" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 no-print">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+
+            <!-- Corporate Header -->
+            <div class="flex justify-between items-start border-b border-slate-800 pb-4">
+                <div>
+                    <span class="text-xs font-bold text-emerald-400 tracking-widest uppercase">SIME DARBY PROPERTY BERHAD</span>
+                    <h2 class="text-xl font-extrabold text-slate-100 mt-1">ESG & Microgrid Sustainability Audit Statement</h2>
+                    <p class="text-xs text-slate-400 mt-0.5">Asset: Elmina Ridge Phase 1 HEMS Pilot (Net-Zero Urban Housing)</p>
+                </div>
+                <div class="text-right font-mono text-xs text-slate-400">
+                    <p class="text-emerald-400 font-bold">AUDITED VERIFIED</p>
+                    <p>ISO 14064 GHG Compliant</p>
+                    <p>Date: October 2026</p>
+                </div>
+            </div>
+
+            <!-- Audit Metrics Summary Grid -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <span class="text-[10px] text-slate-500 uppercase block font-sans">Group Installed PV</span>
+                    <span class="text-base font-bold text-slate-100">603 kWp</span>
+                    <span class="text-[10px] text-emerald-400 block mt-0.5">9 Strategic Sites</span>
+                </div>
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <span class="text-[10px] text-slate-500 uppercase block font-sans">Annual Generation</span>
+                    <span class="text-base font-bold text-slate-100">495 MWh</span>
+                    <span class="text-[10px] text-cyan-400 block mt-0.5">1,782 GJ Energy</span>
+                </div>
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <span class="text-[10px] text-slate-500 uppercase block font-sans">Scope 2 Offset</span>
+                    <span class="text-base font-bold text-slate-100">383 tCO₂e</span>
+                    <span class="text-[10px] text-emerald-400 block mt-0.5">+1,789 GETs Certificates</span>
+                </div>
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <span class="text-[10px] text-slate-500 uppercase block font-sans">Grid Autonomy Rate</span>
+                    <span id="auditAutonomyRate" class="text-base font-bold text-emerald-400">88.5%</span>
+                    <span class="text-[10px] text-purple-400 block mt-0.5">EcoPulse Dynamic</span>
+                </div>
+            </div>
+
+            <!-- Compliance Table -->
+            <div class="space-y-2">
+                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300">Net-Zero Energy Transition Roadmap (NETR) Performance</h4>
+                <div class="border border-slate-800 rounded-xl overflow-hidden font-mono text-xs">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-900 text-slate-400 border-b border-slate-800">
+                            <tr>
+                                <th class="p-2.5">Key Performance Indicator</th>
+                                <th class="p-2.5">FY24 Baseline</th>
+                                <th class="p-2.5">FY25 EcoPulse Target</th>
+                                <th class="p-2.5">Current Live Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60 text-slate-300">
+                            <tr>
+                                <td class="p-2.5">Uncontrolled Peak Grid Draw</td>
+                                <td class="p-2.5 text-rose-400">5.2 kW / home</td>
+                                <td class="p-2.5 text-emerald-400">< 0.5 kW / home</td>
+                                <td class="p-2.5 text-emerald-400 font-bold">0.18 kW (Passed)</td>
+                            </tr>
+                            <tr>
+                                <td class="p-2.5">V2H Bidirectional Efficiency</td>
+                                <td class="p-2.5 text-slate-500">N/A</td>
+                                <td class="p-2.5 text-cyan-400">> 94.0%</td>
+                                <td class="p-2.5 text-cyan-400 font-bold">96.2% (Passed)</td>
+                            </tr>
+                            <tr>
+                                <td class="p-2.5">CREAM Microgrid Export Share</td>
+                                <td class="p-2.5 text-slate-500">0.0%</td>
+                                <td class="p-2.5 text-purple-400">15.0% Surplus</td>
+                                <td class="p-2.5 text-purple-400 font-bold">18.4% (Exceeded)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="bg-emerald-950/30 border border-emerald-500/30 p-3 rounded-xl text-xs text-emerald-200 flex items-center space-x-3">
+                <i data-lucide="check-circle-2" class="w-6 h-6 text-emerald-400 shrink-0"></i>
+                <p>This statement certifies that the Sime Darby Property EcoPulse HEMS SCADA deployment at Elmina Ridge conforms to national NETR renewable targets and Bursa Malaysia ESG Reporting Framework.</p>
+            </div>
+
+            <div class="flex justify-between items-center pt-2 no-print">
+                <button onclick="window.print()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition">
+                    <i data-lucide="printer" class="w-4 h-4"></i>
+                    <span>Print Statement</span>
+                </button>
+                <button onclick="closeModal('esgAuditModal')" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition">
+                    Close Audit View
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 3: SDP SUSTAINABILITY DATA REFERENCE COMPARISON -->
+    <div id="sdpDataModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4 overflow-y-auto">
+        <div class="scada-card rounded-2xl max-w-3xl w-full p-6 space-y-4 border border-cyan-500/40 relative my-8 shadow-2xl">
+            <button onclick="closeModal('sdpDataModal')" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+
+            <div class="flex items-center space-x-3 border-b border-slate-800 pb-3">
+                <div class="p-2.5 rounded-xl bg-cyan-500/20 text-cyan-400">
+                    <i data-lucide="database" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-slate-100">Sime Darby Property Pilot Sites Data Benchmark</h3>
+                    <p class="text-xs text-slate-400">Audited FY2024 Baseline vs FY2025 EcoPulse HEMS SCADA Telemetry</p>
+                </div>
+            </div>
+
+            <div class="border border-slate-800 rounded-xl overflow-hidden font-mono text-xs">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-900 text-slate-400 border-b border-slate-800">
+                        <tr>
+                            <th class="p-2.5">Asset / Site Name</th>
+                            <th class="p-2.5">PV kWp</th>
+                            <th class="p-2.5">FY24 Annual Yield</th>
+                            <th class="p-2.5">Scope 2 Reduction</th>
+                            <th class="p-2.5">EcoPulse Status</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60 text-slate-300">
+                        <tr>
+                            <td class="p-2.5 font-bold text-emerald-400">Elmina Ridge Phase 1 (HEMS Hub)</td>
+                            <td class="p-2.5">150 kWp</td>
+                            <td class="p-2.5">122 MWh</td>
+                            <td class="p-2.5">94 tCO₂e</td>
+                            <td class="p-2.5 text-emerald-400 font-bold">ONLINE (SCADA)</td>
+                        </tr>
+                        <tr>
+                            <td class="p-2.5">City of Elmina HQ & Sales Gallery</td>
+                            <td class="p-2.5">110 kWp</td>
+                            <td class="p-2.5">90 MWh</td>
+                            <td class="p-2.5">70 tCO₂e</td>
+                            <td class="p-2.5 text-cyan-400">ACTIVE</td>
+                        </tr>
+                        <tr>
+                            <td class="p-2.5">KLGCC Resort Command Center</td>
+                            <td class="p-2.5">95 kWp</td>
+                            <td class="p-2.5">78 MWh</td>
+                            <td class="p-2.5">60 tCO₂e</td>
+                            <td class="p-2.5 text-cyan-400">ACTIVE</td>
+                        </tr>
+                        <tr>
+                            <td class="p-2.5">Subang Jaya City Centre (SJCC)</td>
+                            <td class="p-2.5">80 kWp</td>
+                            <td class="p-2.5">65 MWh</td>
+                            <td class="p-2.5">50 tCO₂e</td>
+                            <td class="p-2.5 text-cyan-400">ACTIVE</td>
+                        </tr>
+                        <tr>
+                            <td class="p-2.5">Serenia City Township Hub</td>
+                            <td class="p-2.5">68 kWp</td>
+                            <td class="p-2.5">56 MWh</td>
+                            <td class="p-2.5">43 tCO₂e</td>
+                            <td class="p-2.5 text-slate-400">STANDBY</td>
+                        </tr>
+                        <tr>
+                            <td class="p-2.5 text-slate-400">4 Other SDP Commercial Pilot Sites</td>
+                            <td class="p-2.5">100 kWp</td>
+                            <td class="p-2.5">84 MWh</td>
+                            <td class="p-2.5">66 tCO₂e</td>
+                            <td class="p-2.5 text-slate-400">PLANNED</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="flex justify-end pt-2">
+                <button onclick="closeModal('sdpDataModal')" class="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-xl text-xs transition">
+                    Close Benchmark Data
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- JAVASCRIPT LOGIC & SCADA ENGINE -->
+    <script>
+        // ------------------------------------------------------------------
+        // STATE MANAGEMENT
+        // ------------------------------------------------------------------
+        const state = {
+            viewMode: 'resident', // 'resident' | 'command'
+            dispatchMode: 'ai_auto', // 'ai_auto' | 'peak_shaving' | 'v2h_priority' | 'fast_charge'
+            preset: 'sunny',
+            solarKw: 4.2,
+            loadKw: 2.8,
+            socPct: 85,
+            v2hKw: 1.5,
+            tempC: 31.0,
+            tariff: 0.58,
+            gridSagActive: false,
+            alarms: []
+        };
+
+        let energyChart = null;
+
+        // ------------------------------------------------------------------
+        // INITIALIZATION
+        // ------------------------------------------------------------------
+        window.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            startLiveClock();
+            initSCADAAlarms();
+            initEnergyChart();
+            updateSCADAState();
+        });
+
+        // ------------------------------------------------------------------
+        // LIVE CLOCK
+        // ------------------------------------------------------------------
+        function startLiveClock() {
+            const clockEl = document.getElementById('liveClock');
+            setInterval(() => {
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kuala_Lumpur' });
+                if (clockEl) clockEl.textContent = `MYT ${timeStr}`;
+            }, 1000);
+        }
+
+        // ------------------------------------------------------------------
+        // VIEW MODE SWITCHER
+        // ------------------------------------------------------------------
+        function switchViewMode(mode) {
+            state.viewMode = mode;
+            const resBtn = document.getElementById('viewBtnResident');
+            const cmdBtn = document.getElementById('viewBtnCommand');
+
+            if (mode === 'resident') {
+                resBtn.className = "px-3 py-1.5 rounded-lg font-medium transition flex items-center space-x-1.5 bg-emerald-500 text-slate-950 font-bold shadow";
+                cmdBtn.className = "px-3 py-1.5 rounded-lg font-medium text-slate-400 hover:text-slate-200 transition flex items-center space-x-1.5";
+                addSCADALog("INFO", "Switched UI perspective to Resident View (Elmina Ridge Villa)");
+            } else {
+                cmdBtn.className = "px-3 py-1.5 rounded-lg font-medium transition flex items-center space-x-1.5 bg-cyan-500 text-slate-950 font-bold shadow";
+                resBtn.className = "px-3 py-1.5 rounded-lg font-medium text-slate-400 hover:text-slate-200 transition flex items-center space-x-1.5";
+                addSCADALog("INFO", "Switched UI perspective to SDP PACC Command Room (NETR Dashboard)");
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // CLIMATE PRESETS
+        // ------------------------------------------------------------------
+        function applyClimatePreset(preset) {
+            state.preset = preset;
+            const btnSunny = document.getElementById('presetSunny');
+            const btnMonsoon = document.getElementById('presetMonsoon');
+            const btnHeatwave = document.getElementById('presetHeatwave');
+
+            const defaultBtnClass = "px-3 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition";
+
+            btnSunny.className = defaultBtnClass;
+            btnMonsoon.className = defaultBtnClass;
+            btnHeatwave.className = defaultBtnClass;
+
+            if (preset === 'sunny') {
+                btnSunny.className = "px-3 py-2 bg-amber-500/20 border border-amber-500/50 hover:bg-amber-500/30 text-amber-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition";
+                document.getElementById('sliderSolar').value = 4.8;
+                document.getElementById('sliderLoad').value = 2.4;
+                document.getElementById('sliderTemp').value = 31.0;
+                addSCADALog("INFO", "Applied Climate Preset: Sunny Optimal (High PV Yield)");
+            } else if (preset === 'monsoon') {
+                btnMonsoon.className = "px-3 py-2 bg-cyan-500/20 border border-cyan-500/50 hover:bg-cyan-500/30 text-cyan-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition";
+                document.getElementById('sliderSolar').value = 1.1;
+                document.getElementById('sliderLoad').value = 3.2;
+                document.getElementById('sliderTemp').value = 26.5;
+                addSCADALog("WARNING", "Applied Climate Preset: Monsoon Cloud (PV Suppressed to 1.1kW)");
+            } else if (preset === 'heatwave') {
+                btnHeatwave.className = "px-3 py-2 bg-rose-500/20 border border-rose-500/50 hover:bg-rose-500/30 text-rose-300 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition";
+                document.getElementById('sliderSolar').value = 5.4;
+                document.getElementById('sliderLoad').value = 6.2;
+                document.getElementById('sliderTemp').value = 38.5;
+                addSCADALog("WARNING", "Applied Climate Preset: Extreme Heatwave (HVAC Surge 6.2kW)");
+            }
+
+            updateSCADAState();
+        }
+
+        // ------------------------------------------------------------------
+        // HEMS DISPATCH MODES
+        // ------------------------------------------------------------------
+        function setDispatchMode(mode) {
+            state.dispatchMode = mode;
+            
+            const modes = ['ai_auto', 'peak_shaving', 'v2h_priority', 'fast_charge'];
+            modes.forEach(m => {
+                const btn = document.getElementById(m === 'ai_auto' ? 'modeAiAuto' : m === 'peak_shaving' ? 'modePeakShaving' : m === 'v2h_priority' ? 'modeV2hPriority' : 'modeFastCharge');
+                if (m === mode) {
+                    btn.className = "p-3 bg-emerald-500/20 border-2 border-emerald-500 text-emerald-300 rounded-xl text-left transition shadow-lg shadow-emerald-500/10";
+                } else {
+                    btn.className = "p-3 bg-slate-900 border border-slate-800 text-slate-300 rounded-xl text-left transition hover:bg-slate-800";
+                }
+            });
+
+            if (mode === 'ai_auto') {
+                document.getElementById('sliderSoc').value = 88;
+                document.getElementById('sliderV2h').value = 1.5;
+                addSCADALog("INFO", "HEMS Mode: AI Auto Orchestration Active");
+            } else if (mode === 'peak_shaving') {
+                document.getElementById('sliderSoc').value = 95;
+                document.getElementById('sliderV2h').value = 2.8;
+                document.getElementById('sliderTariff').value = 0.58;
+                addSCADALog("INFO", "HEMS Mode: Peak Demand Shaving (Capping Grid Draw < 0.2 kW)");
+            } else if (mode === 'v2h_priority') {
+                document.getElementById('sliderV2h').value = 3.2;
+                addSCADALog("INFO", "HEMS Mode: V2H EV Priority Discharge (Zero Grid Draw)");
+            } else if (mode === 'fast_charge') {
+                document.getElementById('sliderSoc').value = 40;
+                document.getElementById('sliderV2h').value = -3.2; // Charging EV
+                document.getElementById('sliderTariff').value = 0.24;
+                addSCADALog("INFO", "HEMS Mode: Off-Peak Grid Fast-Charge Triggered");
+            }
+
+            updateSCADAState();
+        }
+
+        // ------------------------------------------------------------------
+        // MAIN SCADA STATE RECALCULATION & UI REFRESH
+        // ------------------------------------------------------------------
+        function updateSCADAState() {
+            // Read Sliders
+            state.solarKw = parseFloat(document.getElementById('sliderSolar').value);
+            state.loadKw = parseFloat(document.getElementById('sliderLoad').value);
+            state.socPct = parseInt(document.getElementById('sliderSoc').value);
+            state.v2hKw = parseFloat(document.getElementById('sliderV2h').value);
+            state.tempC = parseFloat(document.getElementById('sliderTemp').value);
+            state.tariff = parseFloat(document.getElementById('sliderTariff').value);
+
+            // Update Slider Text Displays
+            document.getElementById('valSolarKw').textContent = `${state.solarKw.toFixed(1)} kW`;
+            document.getElementById('valLoadKw').textContent = `${state.loadKw.toFixed(1)} kW`;
+            document.getElementById('valSocPct').textContent = `${state.socPct} %`;
+            document.getElementById('valV2hKw').textContent = `${state.v2hKw > 0 ? '+' : ''}${state.v2hKw.toFixed(1)} kW`;
+            document.getElementById('valTempC').textContent = `${state.tempC.toFixed(1)} °C`;
+            document.getElementById('valTariff').textContent = `RM ${state.tariff.toFixed(2)} / kWh`;
+
+            // Calculate Power Balance
+            // Available Generation & Discharge = Solar + V2H (if >0) + BESS Discharge
+            // If state.gridSagActive is true, Grid Draw is forced to 0.0 kW (Islanding)
+            let bessPowerKw = 0;
+            if (state.socPct > 15) {
+                // Determine required BESS contribution
+                const gap = state.loadKw - state.solarKw - Math.max(0, state.v2hKw);
+                bessPowerKw = Math.max(0, Math.min(gap, 3.5)); // BESS Max Discharge 3.5 kW
+            }
+
+            let netGridKw = state.loadKw - (state.solarKw + bessPowerKw + Math.max(0, state.v2hKw));
+            
+            // If V2H is charging (negative)
+            if (state.v2hKw < 0) {
+                netGridKw += Math.abs(state.v2hKw);
+            }
+
+            if (state.gridSagActive) {
+                netGridKw = 0.0; // Islanded Microgrid Defense
+            }
+
+            // Update Dynamic KPI Stat Cards
+            document.getElementById('kpiSolarKw').textContent = state.solarKw.toFixed(2);
+            document.getElementById('kpiSolarBar').style.width = `${Math.min(100, (state.solarKw / 4.8) * 100)}%`;
+
+            // Yield & Offset
+            const annualYield = (3.5 + (state.solarKw * 0.1)).toFixed(2);
+            document.getElementById('kpiSolarMwh').textContent = annualYield;
+
+            const carbonVal = (2.6 + (state.solarKw * 0.08)).toFixed(2);
+            document.getElementById('kpiCarbonOffset').textContent = carbonVal;
+
+            document.getElementById('kpiBessSoc').textContent = state.socPct;
+            document.getElementById('kpiBessBar').style.width = `${state.socPct}%`;
+            
+            const bessStatusEl = document.getElementById('kpiBessStatus');
+            if (bessPowerKw > 0) {
+                bessStatusEl.textContent = "DISCHARGING";
+                bessStatusEl.className = "text-[10px] px-1.5 py-0.5 rounded font-mono bg-cyan-950 text-cyan-300 border border-cyan-800";
+            } else {
+                bessStatusEl.textContent = "STANDBY / CHARGING";
+                bessStatusEl.className = "text-[10px] px-1.5 py-0.5 rounded font-mono bg-emerald-950 text-emerald-300 border border-emerald-800";
+            }
+
+            // Peak Shaving & Autonomy Rates
+            const peakShavingRate = Math.min(100, Math.max(0, ((5.2 - Math.max(0, netGridKw)) / 5.2) * 100)).toFixed(1);
+            document.getElementById('kpiPeakShaving').textContent = peakShavingRate;
+            document.getElementById('kpiPeakBar').style.width = `${peakShavingRate}%`;
+
+            const autonomyRate = Math.min(100, Math.max(0, (1 - (Math.max(0, netGridKw) / Math.max(1, state.loadKw))) * 100)).toFixed(1);
+            document.getElementById('kpiAutonomy').textContent = autonomyRate;
+            document.getElementById('kpiAutonomyBar').style.width = `${autonomyRate}%`;
+            document.getElementById('auditAutonomyRate').textContent = `${autonomyRate}%`;
+
+            // Update SVG Diagram Values
+            document.getElementById('svgSolarKw').textContent = `${state.solarKw.toFixed(2)} kW`;
+            document.getElementById('svgBessKw').textContent = `${bessPowerKw.toFixed(2)} kW`;
+            document.getElementById('svgBessSocText').textContent = `SOC: ${state.socPct}%`;
+            document.getElementById('svgV2hKw').textContent = `${state.v2hKw > 0 ? '+' : ''}${state.v2hKw.toFixed(2)} kW`;
+            document.getElementById('svgLoadKw').textContent = `${state.loadKw.toFixed(2)} kW`;
+            
+            const svgGridKwEl = document.getElementById('svgGridKw');
+            const svgGridStatusEl = document.getElementById('svgGridStatus');
+            if (netGridKw < 0) {
+                svgGridKwEl.textContent = `${netGridKw.toFixed(2)} kW (Export)`;
+                svgGridKwEl.setAttribute('fill', '#10b981');
+                svgGridStatusEl.textContent = "Exporting Surplus to CREAM";
+            } else {
+                svgGridKwEl.textContent = `${netGridKw.toFixed(2)} kW`;
+                svgGridKwEl.setAttribute('fill', netGridKw > 2.0 ? '#f43f5e' : '#38bdf8');
+                svgGridStatusEl.textContent = netGridKw === 0 ? "100% Autonomous Off-Grid" : "TNB Grid Draw";
+            }
+
+            // SVG Flow Animation Updates
+            updateSvgFlowLines(state.solarKw, bessPowerKw, state.v2hKw, netGridKw);
+
+            // Update TOU & Savings Card
+            updateTOUSavings(netGridKw);
+
+            // Update 24-Hour Profile Chart
+            updateEnergyChartData();
+        }
+
+        // ------------------------------------------------------------------
+        // DYNAMIC SVG FLOW LINE STYLING
+        // ------------------------------------------------------------------
+        function updateSvgFlowLines(solar, bess, v2h, netGrid) {
+            const flowSolar = document.getElementById('flowSolarToHub');
+            const flowBess = document.getElementById('flowBessToHub');
+            const flowV2h = document.getElementById('flowV2hToHub');
+            const flowGrid = document.getElementById('flowHubToGrid');
+
+            if (solar > 0.1) {
+                flowSolar.setAttribute('class', 'flow-line');
+            } else {
+                flowSolar.setAttribute('class', 'flow-line-off');
+            }
+
+            if (bess > 0.1) {
+                flowBess.setAttribute('class', 'flow-line');
+            } else {
+                flowBess.setAttribute('class', 'flow-line-off');
+            }
+
+            if (v2h > 0.1) {
+                flowV2h.setAttribute('class', 'flow-line');
+            } else if (v2h < -0.1) {
+                flowV2h.setAttribute('class', 'flow-line-reverse');
+            } else {
+                flowV2h.setAttribute('class', 'flow-line-off');
+            }
+
+            if (netGrid < -0.1) {
+                flowGrid.setAttribute('class', 'flow-line'); // Exporting
+            } else if (netGrid > 0.1) {
+                flowGrid.setAttribute('class', 'flow-line-reverse'); // Importing from Grid
+            } else {
+                flowGrid.setAttribute('class', 'flow-line-off');
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // TOU TARIFF & SAVINGS CALCULATOR
+        // ------------------------------------------------------------------
+        function updateTOUSavings(netGridKw) {
+            const touLabel = document.getElementById('touZoneLabel');
+            const touRateText = document.getElementById('touRateText');
+
+            if (state.tariff >= 0.55) {
+                touLabel.textContent = "PEAK TARIFF";
+                touLabel.className = "text-lg font-black text-amber-400 tracking-wider";
+                touRateText.textContent = `RM ${state.tariff.toFixed(2)}/kWh`;
+            } else if (state.tariff <= 0.30) {
+                touLabel.textContent = "OFF-PEAK TARIFF";
+                touLabel.className = "text-lg font-black text-emerald-400 tracking-wider";
+                touRateText.textContent = `RM ${state.tariff.toFixed(2)}/kWh`;
+            } else {
+                touLabel.textContent = "NORMAL TARIFF";
+                touLabel.className = "text-lg font-black text-cyan-400 tracking-wider";
+                touRateText.textContent = `RM ${state.tariff.toFixed(2)}/kWh`;
+            }
+
+            // Calculate daily savings compared to baseline 5.2 kW uncontrolled grid draw
+            const baselineCost = 5.2 * 24 * state.tariff * 0.45; // Baseline RM
+            const optimizedCost = Math.max(0, netGridKw) * 24 * state.tariff * 0.45;
+            const savings = Math.max(2.5, baselineCost - optimizedCost);
+
+            document.getElementById('dailySavingsRm').textContent = `RM ${savings.toFixed(2)}`;
+            document.getElementById('bcxCredits').textContent = `${(savings * 0.00018).toFixed(4)} BCX`;
+        }
+
+        // ------------------------------------------------------------------
+        // AI RECOMMENDATION APPLY ACTIONS
+        // ------------------------------------------------------------------
+        function applyAiRecommendation(type) {
+            if (type === 'precool') {
+                document.getElementById('sliderLoad').value = 4.2;
+                addSCADALog("INFO", "AI Executed: Pre-cooling living zones ahead of TNB Peak Tariff");
+            } else if (type === 'cream_export') {
+                document.getElementById('sliderV2h').value = 2.5;
+                addSCADALog("INFO", "AI Executed: Feeding 2.5 kW surplus energy into CREAM Microgrid Loop");
+            }
+            updateSCADAState();
+        }
+
+        // ------------------------------------------------------------------
+        // ISA-18.2 ALARM & SIMULATION ENGINE
+        // ------------------------------------------------------------------
+        function initSCADAAlarms() {
+            addSCADALog("INFO", "ISA-18.2 SCADA Telemetry Agent Initialized.");
+            addSCADALog("INFO", "Modbus TCP connection established to HEMS Gateway (192.168.10.45).");
+        }
+
+        function addSCADALog(type, message) {
+            const logContainer = document.getElementById('scadaAlarmLog');
+            if (!logContainer) return;
+
+            const now = new Date();
+            const timeStr = now.toTimeString().split(' ')[0];
+
+            const item = document.createElement('div');
+            item.className = "p-1.5 rounded flex items-start space-x-2 bg-slate-900/90 border-l-2";
+
+            if (type === 'CRITICAL') {
+                item.classList.add('border-l-rose-500', 'text-rose-300');
+            } else if (type === 'WARNING') {
+                item.classList.add('border-l-amber-500', 'text-amber-300');
+            } else {
+                item.classList.add('border-l-emerald-500', 'text-slate-300');
+            }
+
+            item.innerHTML = `
+                <span class="text-[9px] text-slate-500 shrink-0 mt-0.5">${timeStr}</span>
+                <span class="font-bold text-[9px] px-1 rounded uppercase ${type==='CRITICAL'?'bg-rose-950 text-rose-300':type==='WARNING'?'bg-amber-950 text-amber-300':'bg-emerald-950 text-emerald-300'}">${type}</span>
+                <span class="truncate">${message}</span>
+            `;
+
+            logContainer.prepend(item);
+        }
+
+        function clearSCADAAlarms() {
+            document.getElementById('scadaAlarmLog').innerHTML = '';
+            addSCADALog("INFO", "Alarm log buffer cleared by operator.");
+        }
+
+        function triggerGridSagSimulation() {
+            state.gridSagActive = true;
+            document.getElementById('gridSagAlertBanner').classList.remove('hidden');
+
+            const gridNodeBox = document.getElementById('gridNodeBox');
+            if (gridNodeBox) gridNodeBox.setAttribute('stroke', '#f43f5e');
+
+            addSCADALog("CRITICAL", "Grid Voltage Sag Detected: Phase A Voltage Dropped to 182V AC!");
+            addSCADALog("CRITICAL", "HEMS Gateway executing islanded defense protocol. Disconnecting TNB main contactor.");
+
+            // Shift sliders to cover load
+            document.getElementById('sliderSoc').value = 90;
+            document.getElementById('sliderV2h').value = 3.0;
+
+            updateSCADAState();
+        }
+
+        function clearGridSagFault() {
+            state.gridSagActive = false;
+            document.getElementById('gridSagAlertBanner').classList.add('hidden');
+            addSCADALog("INFO", "TNB Grid Voltage Restored (230V AC 50.02Hz). Re-synchronizing HEMS with main grid.");
+            updateSCADAState();
+        }
+
+        // ------------------------------------------------------------------
+        // HARDWARE NODE TELEMETRY INSPECTION MODAL
+        // ------------------------------------------------------------------
+        const nodeTelemetryData = {
+            solar: {
+                title: "Solar PV String Inverter Node",
+                subtitle: "String #1 / #2 • MPPT Tracker 1000V DC",
+                metrics: [
+                    ["String 1 Voltage", "452.4 V DC"],
+                    ["String 1 Current", "4.85 A"],
+                    ["MPPT Efficiency", "98.8 %"],
+                    ["Inverter Thermal", "41.2 °C"],
+                    ["AC Frequency", "50.02 Hz"],
+                    ["Modbus ID", "0x3012"]
+                ],
+                reg: "REG_PV_INPUT: 0x01E4 | MPPT_STATE: OPTIMAL | GRID_SYNC: TRUE"
+            },
+            bess: {
+                title: "10kWh LFP Battery Storage System (BESS)",
+                subtitle: "Lithium Iron Phosphate • 16S BMS Stack",
+                metrics: [
+                    ["Cell Voltage Avg", "3.32 V"],
+                    ["Pack Temp", "31.2 °C"],
+                    ["State of Health (SOH)", "98.6 %"],
+                    ["Cycle Count", "412 Cycles"],
+                    ["Max Charge Rate", "5.0 kW"],
+                    ["Modbus ID", "0x408A"]
+                ],
+                reg: "REG_BMS_STATUS: DISCHARGING | ISO_SAFETY: NORMAL | C_RATE: 0.35C"
+            },
+            v2h: {
+                title: "ISO 15118 V2H EV Bidirectional Charger",
+                subtitle: "CCS2 Interface • DC Fast Transfer",
+                metrics: [
+                    ["Protocol", "ISO 15118-20"],
+                    ["EV State of Charge", "78 %"],
+                    ["Transfer Mode", "V2H Discharge"],
+                    ["Pilot Duty Cycle", "85 %"],
+                    ["Isolation Guard", "500 kΩ"],
+                    ["Modbus ID", "0x5102"]
+                ],
+                reg: "REG_V2H_DUTY: DISCHARGE_HOME | EV_HEALTH: OK | SAFETY_LOCK: ENGAGED"
+            },
+            hub: {
+                title: "EcoPulse HEMS Microgrid Orchestrator Hub",
+                subtitle: "Edge AI Compute • Linux Industrial RT Kernel",
+                metrics: [
+                    ["CPU Load", "14.2 %"],
+                    ["RAM Usage", "342 MB / 2GB"],
+                    ["Control Loop Latency", "1.2 ms"],
+                    ["5G Telemetry Rate", "100 Hz"],
+                    ["Uptime", "142 Days"],
+                    ["Modbus ID", "0x1001"]
+                ],
+                reg: "REG_AI_CORE: ONLINE | NETR_OPTIMIZER: ACTIVE | LOCAL_BUS: CAN_OPEN"
+            },
+            grid: {
+                title: "TNB Mains Contactor & CREAM Microgrid Loop",
+                subtitle: "3-Phase 415V AC • City of Elmina Ridge Feeder",
+                metrics: [
+                    ["Phase A Voltage", "230.2 V AC"],
+                    ["Grid Frequency", "50.02 Hz"],
+                    ["Power Factor", "0.99 PF"],
+                    ["CREAM Substation", "Feeder #4"],
+                    ["Islanding Relay", "ARMED"],
+                    ["Modbus ID", "0x2001"]
+                ],
+                reg: "REG_GRID_SYNC: LOCKED | POWER_QUALITY: CLASS_A | INTERCONNECT: CLOSED"
+            },
+            load: {
+                title: "Elmina Ridge Villa Smart Load Center",
+                subtitle: "Smart Circuit Breaker Panel • Load Prioritization",
+                metrics: [
+                    ["HVAC Circuit", "1.85 kW"],
+                    ["EV Charger Circuit", "0.00 kW"],
+                    ["Lighting & Plug", "0.65 kW"],
+                    ["Smart Appliances", "0.30 kW"],
+                    ["Total Load", "2.80 kW"],
+                    ["Modbus ID", "0x6001"]
+                ],
+                reg: "REG_LOAD_PRIORITY: HVAC_PRECOOL | SHEDDING_STAGE: 0 (NORMAL)"
+            }
+        };
+
+        function openNodeModal(nodeKey) {
+            const data = nodeTelemetryData[nodeKey];
+            if (!data) return;
+
+            document.getElementById('nodeModalTitle').textContent = data.title;
+            document.getElementById('nodeModalSubtitle').textContent = data.subtitle;
+            document.getElementById('nodeModalRegisterText').textContent = data.reg;
+
+            const metricsContainer = document.getElementById('nodeModalMetrics');
+            metricsContainer.innerHTML = '';
+
+            data.metrics.forEach(([label, value]) => {
+                const box = document.createElement('div');
+                box.className = "bg-slate-900/90 p-2.5 rounded-xl border border-slate-800";
+                box.innerHTML = `
+                    <span class="text-[10px] text-slate-500 block uppercase font-sans">${label}</span>
+                    <span class="text-sm font-bold text-emerald-400 font-mono">${value}</span>
+                `;
+                metricsContainer.appendChild(box);
+            });
+
+            openModal('nodeModal');
+        }
+
+        // ------------------------------------------------------------------
+        // GENERAL MODAL HELPERS
+        // ------------------------------------------------------------------
+        function openModal(id) {
+            const el = document.getElementById(id);
+            if (el) el.classList.remove('hidden');
+        }
+
+        function closeModal(id) {
+            const el = document.getElementById(id);
+            if (el) el.classList.add('hidden');
+        }
+
+        // ------------------------------------------------------------------
+        // CHART.JS 24-HOUR DISPATCH PROFILE
+        // ------------------------------------------------------------------
+        function initEnergyChart() {
+            const ctx = document.getElementById('energyProfileChart').getContext('2d');
+
+            const hours = Array.from({length: 24}, (_, i) => `${String(i).padStart(2, '0')}:00`);
+
+            energyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: hours,
+                    datasets: [
+                        {
+                            label: 'Uncontrolled Baseline (kW)',
+                            data: [1.2, 1.0, 0.9, 0.8, 1.1, 2.2, 3.8, 4.5, 4.2, 3.9, 4.1, 4.6, 5.2, 5.0, 4.8, 4.5, 4.8, 5.2, 4.9, 3.8, 2.8, 2.1, 1.6, 1.3],
+                            borderColor: '#f43f5e',
+                            borderWidth: 2,
+                            borderDash: [4, 4],
+                            tension: 0.4,
+                            pointRadius: 0
+                        },
+                        {
+                            label: 'Solar PV Output (kW)',
+                            data: [0, 0, 0, 0, 0, 0.2, 1.1, 2.4, 3.5, 4.2, 4.6, 4.8, 4.5, 3.8, 2.9, 1.8, 0.8, 0.1, 0, 0, 0, 0, 0, 0],
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                            borderWidth: 2.5,
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 0
+                        },
+                        {
+                            label: 'EcoPulse Net Grid Draw (kW)',
+                            data: [0.8, 0.8, 0.8, 0.8, 0.8, 1.0, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.2, 0.1, 0.0, 0.2, 0.3, 0.5, 0.8, 0.9, 0.8, 0.8, 0.8],
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                            borderWidth: 2.5,
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            titleColor: '#f8fafc',
+                            bodyColor: '#34d399',
+                            borderColor: '#334155',
+                            borderWidth: 1
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(51, 65, 85, 0.2)' },
+                            ticks: { color: '#94a3b8', font: { size: 9, family: 'JetBrains Mono' } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(51, 65, 85, 0.2)' },
+                            ticks: { color: '#94a3b8', font: { size: 9, family: 'JetBrains Mono' } },
+                            min: 0,
+                            max: 6
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateEnergyChartData() {
+            if (!energyChart) return;
+
+            // Recalculate solar profile based on state.solarKw
+            const solarMultiplier = state.solarKw / 4.2;
+            const newSolar = [0, 0, 0, 0, 0, 0.2, 1.1, 2.4, 3.5, 4.2, 4.6, 4.8, 4.5, 3.8, 2.9, 1.8, 0.8, 0.1, 0, 0, 0, 0, 0, 0]
+                .map(v => parseFloat((v * solarMultiplier).toFixed(2)));
+
+            // Recalculate Net Grid Draw profile
+            const newNetGrid = newSolar.map((pv, i) => {
+                const baseLoad = [1.2, 1.0, 0.9, 0.8, 1.1, 2.2, 3.8, 4.5, 4.2, 3.9, 4.1, 4.6, 5.2, 5.0, 4.8, 4.5, 4.8, 5.2, 4.9, 3.8, 2.8, 2.1, 1.6, 1.3][i];
+                let draw = baseLoad - pv;
+                if (state.socPct > 30) draw -= 1.2; // BESS Discharge
+                if (state.gridSagActive) draw = 0.0;
+                return Math.max(0, parseFloat(draw.toFixed(2)));
+            });
+
+            energyChart.data.datasets[1].data = newSolar;
+            energyChart.data.datasets[2].data = newNetGrid;
+            energyChart.update();
+        }
+    </script>
+</body>
+</html>
